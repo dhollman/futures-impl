@@ -1,6 +1,7 @@
 #ifndef STDFUTURES_EXPERIMENTAL_BITS_STANDARD_FUTURE_HPP
 #define STDFUTURES_EXPERIMENTAL_BITS_STANDARD_FUTURE_HPP
 
+#include "utility.hpp"
 #include "future_completion_token.hpp"
 #include "future_continuation.hpp"
 #include "executors_helpers.hpp"
@@ -16,29 +17,49 @@
 
 namespace std {
 namespace experimental {
-inline namespace futures_v1 {
+inline namespace executors_v1 {
 namespace execution {
 
 namespace __continuable_future_impl {
 
 template <typename T, typename Executor, typename Ret=any>
-struct __cf_impl_base {
+struct __cf_impl_base
+{
 
-  using poly_future_continuation_t = __future_continuation_impl::__poly_future_continuation<
-    Ret, T
-  >;
+  public:
 
-  virtual
-  executors_v1::execution::executor_future_t<Executor, Ret>
-  __invoke_then(poly_future_continuation_t) && = 0;
+    using poly_future_continuation_t = __future_continuation_impl::__poly_future_continuation<
+      Ret, T
+    >;
+
+    Executor const& get_executor() const { return ex_; }
+
+    virtual
+    executors_v1::execution::executor_future_t<Executor, Ret>
+    __invoke_then(poly_future_continuation_t) && = 0;
+
+    virtual ~__cf_impl_base() = default;
+
+  protected:
+
+    Executor ex_;
+
+    explicit __cf_impl_base(Executor ex) : ex_(ex) { }
 
 };
 
 template <typename ContinuableFuture, typename T, typename Executor, typename Ret=any>
-struct __cf_erase_impl : __cf_impl_base<T, Executor, Ret> {
+struct __cf_erase_impl : __cf_impl_base<T, Executor, Ret>
+{
+
+  using base_t = __cf_impl_base<T, Executor, Ret>;
+
   ContinuableFuture f_;
 
-  explicit __cf_erase_impl(ContinuableFuture&& f) : f_(std::move(f)) { }
+  explicit __cf_erase_impl(ContinuableFuture&& f)
+    : base_t(f.get_executor()),
+      f_(std::move(f))
+  { }
 
   executors_v1::execution::executor_future_t<Executor, Ret>
   __invoke_then(typename base_t::poly_future_continuation_t cont) && override {
@@ -47,18 +68,23 @@ struct __cf_erase_impl : __cf_impl_base<T, Executor, Ret> {
 };
 
 template <typename ContinuableFuture, typename T, typename NewExecutor, typename Ret=any>
-struct __cf_via_erase_impl : __cf_impl_base<T, NewExecutor, Ret> {
-  ContinuableFuture f_;
-  NewExecutor new_ex_;
+struct __cf_via_erase_impl : __cf_impl_base<T, NewExecutor, Ret>
+{
 
-  explicit __cf_erase_impl(ContinuableFuture&& f, NewExecutor new_ex)
-    : f_(std::move(f)), new_ex_(new_ex)
+  using base_t = __cf_impl_base<T, NewExecutor, Ret>;
+
+  ContinuableFuture f_;
+
+  explicit __cf_via_erase_impl(
+    ContinuableFuture&& f, NewExecutor new_ex
+  ) : base_t(new_ex),
+      f_(std::move(f))
   { }
 
   executors_v1::execution::executor_future_t<NewExecutor, Ret>
   __invoke_then(typename base_t::poly_future_continuation_t cont) && override {
-    auto [p, ft] = execution::make_promise_contract<T>(new_ex_);
-    executors_v1::execution::require(new_ex_, executors_v1::execution::then).then_execute(
+    auto [p, ft] = execution::make_promise_contract<T>(ex_);
+    executors_v1::execution::require(this->ex_, executors_v1::execution::then).then_execute(
       std::move(cont), std::move(ft)
     );
     std::move(f_).then(execution::on_variant([pp=std::move(p)](auto&& var){
@@ -74,10 +100,12 @@ struct __cf_via_erase_impl : __cf_impl_base<T, NewExecutor, Ret> {
 };
 
 template <typename T, typename OneWayExecutor, typename Ret>
-struct __cf_one_way_impl : __cf_impl_base<T, OneWayExecutor, Ret> {
+struct __cf_one_way_impl : __cf_impl_base<T, OneWayExecutor, Ret>
+{
+
   using base_t = __cf_impl_base<T, OneWayExecutor, Ret>;
+
   std::shared_ptr<detail::promise_shared_state<T>> core_;
-  // TODO Implement shared-state executor here.
 
   executors_v1::execution::executor_future_t<OneWayExecutor, Ret>
   __invoke_then(typename base_t::poly_future_continuation_t cont) && override {
@@ -126,15 +154,14 @@ template<class T, class Executor>
 class continuable_future {
   private:
 
-    Executor ex_;
-    std::unique_ptr<__continuable_future_impl::__cf_impl_base<T, Executor>> impl_;
+    using tracking_executor_t = decltype(execution::require(outstanding_work.tracked, std::declval<Executor>()));
+    std::unique_ptr<__continuable_future_impl::__cf_impl_base<T, tracking_executor_t>> impl_;
 
     template <typename ContinuableFuture>
     continuable_future(
       ContinuableFuture&& f,
       Executor ex
-    ) : ex_(ex),
-        impl_(std::make_unique<__continuable_future_impl::__cf_via_erase_impl<
+    ) : impl_(std::make_unique<__continuable_future_impl::__cf_via_erase_impl<
           decay_t<ContinuableFuture>, T, Executor>
         >(std::forward<ContinuableFuture>(f), ex))
     { }
@@ -156,16 +183,15 @@ class continuable_future {
 
     // TODO @paper add this type-erasing constructor
     template <typename ContinuableFuture>
-    continuable_future(
+    explicit continuable_future(
       ContinuableFuture&& cf,
       std::enable_if_t<
         __continuable_future_impl::__is_cf_v<ContinuableFuture, T, Executor>,
         __continuable_future_impl::__nat
       > = { }
-    ) : ex_(cf.get_executor()),
-        impl_(
-          std::make_unique<__continuable_future_impl:::_cf_erase_impl<
-            remove_cv_t<remove_reference_t<ContinuableFuture>>, T, Executor
+    ) : impl_(
+          std::make_unique<__continuable_future_impl::__cf_erase_impl<
+            remove_cvref_t<ContinuableFuture>, T, Executor
           >>(std::forward<ContinuableFuture>(cf))
         )
     { }
@@ -173,7 +199,7 @@ class continuable_future {
     template <typename FutureContinuation>
     auto then(FutureContinuation&& fc) && {
       using _Ret = __future_continuation_impl::__return_detect_t<FutureContinuation, T>;
-      executors_v1::execution::require(ex_,
+      executors_v1::execution::require(impl_->get_executor(),
         executors_v1::execution::relationship.continuation
       ).then_execute(
         [](any&& ret) { return std::any_cast<_Ret>(ret); },

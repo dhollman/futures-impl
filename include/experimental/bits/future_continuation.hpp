@@ -11,7 +11,7 @@
 #include <cassert>
 
 namespace std::experimental {
-inline namespace futures_v1 {
+inline namespace executors_v1 {
 namespace execution {
 
 namespace __future_continuation_impl {
@@ -148,7 +148,7 @@ struct is_future_continuation<
 > : std::true_type { };
 
 } // end namespace execution
-} // end namespace futures_v1
+} // end namespace executors_v1
 } // end namespace std::experimental
 
 #endif //STDFUTURES_EXPERIMENTAL_BITS_FUTURE_CONTINUATION_HPP

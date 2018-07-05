@@ -7,7 +7,7 @@
 
 namespace std {
 namespace experimental {
-inline namespace futures_v1 {
+inline namespace executors_v1 {
 
 // Specialised on oneway executor.
 // This just modifies the standard_future to carry the new executor without

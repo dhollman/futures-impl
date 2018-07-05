@@ -6,7 +6,7 @@
 
 namespace std {
 namespace experimental {
-inline namespace futures_v1 {
+inline namespace executors_v1 {
 namespace detail {
 
 // Future type defined synchronization primitive

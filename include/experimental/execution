@@ -7,8 +7,9 @@
 #include <utility> // std::pair
 
 namespace std::experimental {
-inline namespace futures_v1 {
+inline namespace executors_v1 {
 namespace execution {
+
 
 // P1054r0, section 2.2:
 // ------------------------------
@@ -113,8 +114,22 @@ template<class F>
 template<class F, class G>
   auto on_value_or_error(F&& f, G&& g);
 
+
+// Excluded from P0443 implementation for some reason:
+// ------------------------------
+
+struct then_t;
+
+template<class Executor>
+  struct is_then_executor;
+
+template<class Executor>
+  inline constexpr bool is_then_executor_v
+    = is_then_executor<Executor>::value;
+
+
 } // end namespace execution
-} // end inline namespace futures_v1
+} // end inline namespace executors_v1
 } // end namespace std::execution
 
 #include "bits/standard_future.hpp"
